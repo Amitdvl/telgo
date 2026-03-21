@@ -10,6 +10,8 @@ import (
 
 // FetchMessages fetches the most recent messages from a channel, handling pagination.
 // It returns messages in chronological order (oldest first).
+// Pagination uses raw message IDs so that batches consisting entirely of
+// service/empty messages do not cause premature termination.
 func FetchMessages(ctx context.Context, api *tg.Client, ch *Channel, limit int) ([]Message, error) {
 	inputPeer := &tg.InputPeerChannel{
 		ChannelID:  ch.ID,
@@ -20,35 +22,48 @@ func FetchMessages(ctx context.Context, api *tg.Client, ch *Channel, limit int) 
 	offsetID := 0
 
 	for len(all) < limit {
-		batchSize := limit - len(all)
-		if batchSize > 100 {
-			batchSize = 100
-		}
-
 		result, err := api.MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{
 			Peer:     inputPeer,
 			OffsetID: offsetID,
-			Limit:    batchSize,
+			Limit:    100,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("get history: %w", err)
 		}
 
-		msgs := extractMessages(result)
-		if len(msgs) == 0 {
-			break
+		raw, users := extractRaw(result)
+		if len(raw) == 0 {
+			break // no more messages in channel
 		}
 
-		all = append(all, msgs...)
-		// Set offset to the last (oldest) message ID for next page
-		offsetID = msgs[len(msgs)-1].ID
+		// Always advance offset using the oldest raw message ID,
+		// regardless of whether it carried text or not.
+		offsetID = rawLastID(raw)
+
+		userMap := buildUserMap(users)
+		for _, msgClass := range raw {
+			msg, ok := msgClass.(*tg.Message)
+			if !ok || msg.Message == "" {
+				continue
+			}
+			all = append(all, Message{
+				ID:     msg.ID,
+				Date:   time.Unix(int64(msg.Date), 0),
+				Text:   msg.Message,
+				Sender: resolveSender(msg, userMap),
+			})
+		}
+
+		if len(raw) < 100 {
+			break // reached the end of channel history
+		}
 	}
 
 	if len(all) > limit {
 		all = all[:limit]
 	}
 
-	// Reverse to chronological order (oldest first)
+	// Reverse to chronological order (oldest first).
 	for i, j := 0, len(all)-1; i < j; i, j = i+1, j-1 {
 		all[i], all[j] = all[j], all[i]
 	}
@@ -56,42 +71,34 @@ func FetchMessages(ctx context.Context, api *tg.Client, ch *Channel, limit int) 
 	return all, nil
 }
 
-func extractMessages(result tg.MessagesMessagesClass) []Message {
-	var rawMsgs []tg.MessageClass
-	var users []tg.UserClass
-
+// extractRaw unpacks the union type returned by MessagesGetHistory.
+func extractRaw(result tg.MessagesMessagesClass) ([]tg.MessageClass, []tg.UserClass) {
 	switch v := result.(type) {
 	case *tg.MessagesMessages:
-		rawMsgs = v.Messages
-		users = v.Users
+		return v.Messages, v.Users
 	case *tg.MessagesMessagesSlice:
-		rawMsgs = v.Messages
-		users = v.Users
+		return v.Messages, v.Users
 	case *tg.MessagesChannelMessages:
-		rawMsgs = v.Messages
-		users = v.Users
+		return v.Messages, v.Users
 	default:
-		return nil
+		return nil, nil
 	}
+}
 
-	userMap := buildUserMap(users)
-
-	var msgs []Message
-	for _, raw := range rawMsgs {
-		msg, ok := raw.(*tg.Message)
-		if !ok || msg.Message == "" {
-			continue
-		}
-
-		sender := resolveSender(msg, userMap)
-		msgs = append(msgs, Message{
-			ID:     msg.ID,
-			Date:   time.Unix(int64(msg.Date), 0),
-			Text:   msg.Message,
-			Sender: sender,
-		})
+// rawLastID returns the ID of the last (oldest) message in a raw batch.
+func rawLastID(msgs []tg.MessageClass) int {
+	if len(msgs) == 0 {
+		return 0
 	}
-	return msgs
+	switch m := msgs[len(msgs)-1].(type) {
+	case *tg.Message:
+		return m.ID
+	case *tg.MessageService:
+		return m.ID
+	case *tg.MessageEmpty:
+		return m.ID
+	}
+	return 0
 }
 
 func buildUserMap(users []tg.UserClass) map[int64]string {

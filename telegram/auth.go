@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"syscall"
+
+	"golang.org/x/term"
 
 	"github.com/gotd/td/telegram/auth"
 	"github.com/gotd/td/tg"
@@ -27,11 +30,12 @@ func (a *terminalAuth) Phone(_ context.Context) (string, error) {
 
 func (a *terminalAuth) Password(_ context.Context) (string, error) {
 	fmt.Print("Enter 2FA password: ")
-	pass, err := a.reader.ReadString('\n')
+	pass, err := term.ReadPassword(int(syscall.Stdin))
+	fmt.Println() // newline after hidden input
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(pass), nil
+	return strings.TrimSpace(string(pass)), nil
 }
 
 func (a *terminalAuth) Code(_ context.Context, _ *tg.AuthSentCode) (string, error) {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/gotd/td/tgerr"
 	"github.com/gotd/td/tg"
 )
 
@@ -24,6 +25,9 @@ func ListChannels(ctx context.Context, api *tg.Client) ([]Channel, error) {
 		chats = d.Chats
 	case *tg.MessagesDialogsSlice:
 		chats = d.Chats
+	case *tg.MessagesDialogsNotModified:
+		// no changes since last fetch — return empty, not an error
+		return nil, nil
 	default:
 		return nil, fmt.Errorf("unexpected dialogs type: %T", dialogs)
 	}
@@ -50,10 +54,15 @@ func ResolveChannel(ctx context.Context, api *tg.Client, query string) (*Channel
 	// Strip leading @ if present
 	query = strings.TrimPrefix(query, "@")
 
-	// Try resolving by username first
+	// Try resolving by username first.
 	resolved, err := api.ContactsResolveUsername(ctx, &tg.ContactsResolveUsernameRequest{
 		Username: query,
 	})
+	if err != nil && !tgerr.IsCode(err, 400) {
+		// Propagate real errors (network, auth, flood-wait, etc.).
+		// 400 means the username wasn't found or was invalid — fall through to dialog search.
+		return nil, fmt.Errorf("resolve username %q: %w", query, err)
+	}
 	if err == nil {
 		for _, chat := range resolved.Chats {
 			ch, ok := chat.(*tg.Channel)
@@ -69,7 +78,7 @@ func ResolveChannel(ctx context.Context, api *tg.Client, query string) (*Channel
 		}
 	}
 
-	// Fallback: search dialogs by title
+	// Fallback: search dialogs by title or username match.
 	channels, err := ListChannels(ctx, api)
 	if err != nil {
 		return nil, fmt.Errorf("resolve channel %q: %w", query, err)
