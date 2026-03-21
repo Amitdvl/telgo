@@ -34,27 +34,35 @@ go install github.com/amitdvl/telgo@latest
 
 ## Setup
 
-Copy `.env.example` to `.env` and fill in your credentials:
-
 ```sh
-cp .env.example .env
+telgo setup
 ```
 
-```env
-TELEGRAM_APP_ID=12345678
-TELEGRAM_APP_HASH=your_app_hash_here
-ANTHROPIC_API_KEY=sk-ant-...
-```
+This prompts for your credentials and saves them to `~/.telgo/.env`. That's it — no manual file editing, no export commands. Credentials are loaded automatically on every run.
 
-Load the env before running (or use [direnv](https://direnv.net/)):
+You'll need:
+- **Telegram API credentials** — [my.telegram.org](https://my.telegram.org) → *API development tools* → create an app
+- **Anthropic API key** — only for the `summarize` command (optional, skip with Enter)
+
+Then authenticate once:
 
 ```sh
-export $(cat .env | grep -v '#' | xargs)
+telgo auth
 ```
 
 ---
 
 ## Commands
+
+### `setup` — First-time credential setup
+
+```sh
+telgo setup
+```
+
+Writes credentials to `~/.telgo/.env` (mode `0600`). Re-run to update them.
+
+---
 
 ### `auth` — Authenticate with Telegram
 
@@ -181,9 +189,16 @@ Period: Mar 10 – Mar 18, 2026
 
 ---
 
-## Session Storage
+## Data directory
 
-Sessions are stored at `~/.telgo/session.json` by default. Override with:
+Everything lives in `~/.telgo/` by default:
+
+| File | Contents |
+|---|---|
+| `~/.telgo/.env` | Credentials (written by `telgo setup`) |
+| `~/.telgo/session.json` | Telegram auth session |
+
+Override the directory:
 
 ```sh
 export TELGO_SESSION_DIR=/path/to/dir

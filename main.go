@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 
 	gotelegram "github.com/gotd/td/telegram"
@@ -29,6 +31,15 @@ func main() {
 		return
 	}
 
+	// setup runs before config.Load() since credentials may not exist yet.
+	if cmd == "setup" {
+		if err := runSetup(); err != nil {
+			fmt.Fprintf(os.Stderr, "setup error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config error: %v\n", err)
@@ -48,6 +59,7 @@ func main() {
 	case "summarize":
 		err = runSummarize(ctx, cfg, os.Args[2:])
 	default:
+
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
 		printUsage()
 		os.Exit(1)
@@ -65,18 +77,74 @@ func printUsage() {
 Usage: telgo <command> [options]
 
 Commands:
+  setup                 Interactive first-time setup (saves credentials to ~/.telgo/.env)
   auth                  Authenticate with Telegram (interactive)
   channels              List accessible channels
   read <channel>        Read messages from a channel
   summarize <channel>   Summarize messages from a channel
 
 Options for read/summarize:
-  -limit N    Number of messages to fetch (default: 200)
+  -limit N    Number of messages to fetch (default: 200)`)
+}
 
-Environment:
-  TELEGRAM_APP_ID       Telegram API app ID (from my.telegram.org)
-  TELEGRAM_APP_HASH     Telegram API app hash
-  ANTHROPIC_API_KEY     Anthropic API key (for summarize command)`)
+func runSetup() error {
+	dir := config.DefaultDir()
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("cannot create %s: %w", dir, err)
+	}
+	envPath := filepath.Join(dir, ".env")
+
+	if _, err := os.Stat(envPath); err == nil {
+		fmt.Printf("Existing config found at %s\n", envPath)
+		fmt.Print("Overwrite? [y/N]: ")
+		var ans string
+		fmt.Scanln(&ans)
+		if strings.ToLower(strings.TrimSpace(ans)) != "y" {
+			fmt.Println("Aborted.")
+			return nil
+		}
+	}
+
+	r := bufio.NewReader(os.Stdin)
+	prompt := func(label string) (string, error) {
+		fmt.Print(label)
+		v, err := r.ReadString('\n')
+		return strings.TrimSpace(v), err
+	}
+
+	fmt.Println("Get your API credentials at https://my.telegram.org → API development tools")
+	fmt.Println()
+
+	appID, err := prompt("App api_id:   ")
+	if err != nil || appID == "" {
+		return fmt.Errorf("app ID is required")
+	}
+	appHash, err := prompt("App api_hash: ")
+	if err != nil || appHash == "" {
+		return fmt.Errorf("app hash is required")
+	}
+
+	fmt.Println()
+	fmt.Println("Anthropic API key is used by 'telgo summarize' to generate summaries via Claude.")
+	apiKey, err := prompt("ANTHROPIC_API_KEY (leave blank to skip): ")
+	if err != nil {
+		return err
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "TELEGRAM_APP_ID=%s\n", appID)
+	fmt.Fprintf(&b, "TELEGRAM_APP_HASH=%s\n", appHash)
+	if apiKey != "" {
+		fmt.Fprintf(&b, "ANTHROPIC_API_KEY=%s\n", apiKey)
+	}
+
+	if err := os.WriteFile(envPath, []byte(b.String()), 0600); err != nil {
+		return fmt.Errorf("write %s: %w", envPath, err)
+	}
+
+	fmt.Printf("\nSaved to %s\n", envPath)
+	fmt.Println("Run 'telgo auth' next to authenticate with your Telegram account.")
+	return nil
 }
 
 func newClient(cfg *config.Config) *gotelegram.Client {
