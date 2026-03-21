@@ -36,7 +36,7 @@ func (s *Summarizer) Summarize(ctx context.Context, channelTitle string, message
 	prompt := formatMessages(channelTitle, messages)
 
 	resp, err := s.client.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:     anthropic.ModelClaudeSonnet4_20250514,
+		Model:     anthropic.ModelClaudeSonnet4_6,
 		MaxTokens: 4096,
 		System: []anthropic.TextBlockParam{
 			{Text: systemPrompt},

@@ -142,7 +142,7 @@ Got 200 messages
 
 ### `summarize` — Fetch and summarize messages
 
-Fetches recent messages and generates a structured summary using Claude. Designed to be useful for both humans and agents.
+Fetches recent messages and generates a structured summary using Claude (claude-sonnet-4-6). Designed to be useful for both humans and agents.
 
 ```sh
 telgo summarize <channel> [-limit N]

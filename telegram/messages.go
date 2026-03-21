@@ -22,10 +22,14 @@ func FetchMessages(ctx context.Context, api *tg.Client, ch *Channel, limit int) 
 	offsetID := 0
 
 	for len(all) < limit {
+		batchSize := limit - len(all)
+		if batchSize > 100 {
+			batchSize = 100
+		}
 		result, err := api.MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{
 			Peer:     inputPeer,
 			OffsetID: offsetID,
-			Limit:    100,
+			Limit:    batchSize,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("get history: %w", err)
@@ -54,7 +58,7 @@ func FetchMessages(ctx context.Context, api *tg.Client, ch *Channel, limit int) 
 			})
 		}
 
-		if len(raw) < 100 {
+		if len(raw) < batchSize {
 			break // reached the end of channel history
 		}
 	}

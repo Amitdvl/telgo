@@ -202,10 +202,29 @@ func runChannels(ctx context.Context, cfg *config.Config) error {
 	})
 }
 
+// reorderArgs moves flag arguments before positional arguments so that
+// Go's flag package (which stops at the first non-flag arg) parses them.
+// It treats the argument after a flag starting with "-" as that flag's value.
+func reorderArgs(args []string) []string {
+	var flags, positional []string
+	for i := 0; i < len(args); i++ {
+		if strings.HasPrefix(args[i], "-") {
+			flags = append(flags, args[i])
+			if !strings.Contains(args[i], "=") && i+1 < len(args) {
+				i++
+				flags = append(flags, args[i])
+			}
+		} else {
+			positional = append(positional, args[i])
+		}
+	}
+	return append(flags, positional...)
+}
+
 func runRead(ctx context.Context, cfg *config.Config, args []string) error {
 	fs := flag.NewFlagSet("read", flag.ExitOnError)
 	limit := fs.Int("limit", 200, "number of messages to fetch")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderArgs(args)); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -243,7 +262,7 @@ func runRead(ctx context.Context, cfg *config.Config, args []string) error {
 func runSummarize(ctx context.Context, cfg *config.Config, args []string) error {
 	fs := flag.NewFlagSet("summarize", flag.ExitOnError)
 	limit := fs.Int("limit", 200, "number of messages to fetch")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderArgs(args)); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
